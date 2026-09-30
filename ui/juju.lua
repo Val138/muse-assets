@@ -461,19 +461,41 @@ function Section:AddLabel(caption,status)
         end
         control.paint(control:get())
         local adjusting=false
-        local function adjust()
-            local x=game:GetService("UserInputService"):GetMouseLocation().X
-            local ratio=math.clamp((x-track.AbsolutePosition.X)/math.max(track.AbsoluteSize.X,1),0,1)
-            control:set(math.floor((minimum+(maximum-minimum)*ratio)/step+0.5)*step)
+        local dragLeft,dragWidth,dragRatio
+        local valuePaint=control.paint
+        local thumb=new("Frame",{Name="SliderThumb",AnchorPoint=Vector2.new(0.5,0.5),
+            BackgroundColor3=UI.theme.accent,BorderSizePixel=0,Size=UDim2.fromOffset(7,9),ZIndex=44},track)
+        new("UICorner",{CornerRadius=UDim.new(0,2)},thumb)
+        control.paint=function(v)
+            valuePaint(v)
+            local ratio=adjusting and dragRatio or math.clamp(((tonumber(v) or minimum)-minimum)/math.max(maximum-minimum,0.001),0,1)
+            fill.Size=UDim2.new(ratio or 0,0,1,0)
+            thumb.Position=UDim2.new(ratio or 0,0,0.5,0)
         end
-        keep(track.InputBegan:Connect(function(input)
-            if input.UserInputType==Enum.UserInputType.MouseButton1 then adjusting=true;adjust() end
+        control.paint(control:get())
+        local function adjust(event)
+            -- InputObject.Position belongs to this mouse event; polling can lag behind it.
+            local x=event and event.Position and event.Position.X or game:GetService("UserInputService"):GetMouseLocation().X
+            dragRatio=math.clamp((x-dragLeft)/dragWidth,0,1)
+            fill.Size=UDim2.new(dragRatio,0,1,0);thumb.Position=UDim2.new(dragRatio,0,0.5,0)
+            local nextValue=math.clamp(math.floor((minimum+(maximum-minimum)*dragRatio)/step+0.5)*step,minimum,maximum)
+            -- Draw continuously, while callbacks receive only changed rounded values.
+            if nextValue~=control:get() then control:set(nextValue,true) end
+        end
+        keep(track.InputBegan:Connect(function(event)
+            if event.UserInputType==Enum.UserInputType.MouseButton1 then
+                dragLeft=track.AbsolutePosition.X;dragWidth=math.max(track.AbsoluteSize.X,1)
+                dragRatio=math.clamp(((tonumber(control:get()) or minimum)-minimum)/math.max(maximum-minimum,0.001),0,1)
+                adjusting=true;adjust(event)
+            end
         end))
-        keep(game:GetService("UserInputService").InputChanged:Connect(function(input)
-            if adjusting and input.UserInputType==Enum.UserInputType.MouseMovement then adjust() end
+        keep(game:GetService("UserInputService").InputChanged:Connect(function(event)
+            if adjusting and event.UserInputType==Enum.UserInputType.MouseMovement then adjust(event) end
         end))
-        keep(game:GetService("UserInputService").InputEnded:Connect(function(input)
-            if input.UserInputType==Enum.UserInputType.MouseButton1 then adjusting=false end
+        keep(game:GetService("UserInputService").InputEnded:Connect(function(event)
+            if adjusting and event.UserInputType==Enum.UserInputType.MouseButton1 then
+                adjust(event);adjusting=false;control.paint(control:get())
+            end
         end))
         return control
     end
@@ -499,7 +521,7 @@ function Section:AddLabel(caption,status)
         function control:Generate() end
         control.__el.setlist=function(_,v) choices=v end
         keep(box.Activated:Connect(function()
-            UI:popup({title=caption,items=(function()
+            UI:popup({owner=box,title=caption,items=(function()
                 local items={}
                 for _,choice in ipairs(choices) do
                     items[#items+1]={name=choice,callback=function()
@@ -555,6 +577,7 @@ function Section:AddLabel(caption,status)
         row.gear=gear
         if row.colorBox then row.colorBox.Position=UDim2.new(1,-46,0,3) end
         keep(gear.Activated:Connect(function()
+            UI:closepopup()
             root.Visible=not root.Visible;gear.Text=root.Visible and "-" or "\u{2699}"
         end))
         return row.options
@@ -582,13 +605,10 @@ function UI.wheelHSV(dx,dy,radius)
     return (math.atan2(dx,-dy)/(2*math.pi))%1,math.clamp(math.sqrt(dx*dx+dy*dy)/math.max(radius,1),0,1)
 end
 function UI:colorpopup(control,title,anchor)
-    self:closepopup()
+    if not self:beginpopup(anchor) then return nil end
     local width,height=232,275
     local view=workspace.CurrentCamera.ViewportSize
-    -- Convert screen positions to the shared ScreenGui's coordinates.
-    local origin=nativeRoot.AbsolutePosition-Vector2.new(nativeRoot.Position.X.Offset,nativeRoot.Position.Y.Offset)
-    local x=math.clamp(anchor.AbsolutePosition.X-origin.X+anchor.AbsoluteSize.X-width,8,math.max(8,view.X-width-8))
-    local y=math.clamp(anchor.AbsolutePosition.Y-origin.Y+anchor.AbsoluteSize.Y+6,8,math.max(8,view.Y-height-8))
+    local x,y=self:popupPosition(anchor,width,height)
     local root=new("Frame",{Name="MuseColorPicker",BackgroundColor3=self.theme.panel,BorderSizePixel=0,
         Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(width,height),ZIndex=1100},self.scr)
     new("UICorner",{CornerRadius=UDim.new(0,4)},root)
@@ -619,7 +639,7 @@ function UI:colorpopup(control,title,anchor)
         TextSize=12,Position=UDim2.fromOffset(42,222),Size=UDim2.fromOffset(128,23)},root)
     new("UIStroke",{Color=self.theme.line,Thickness=1},hex)
     local copy=button(root,"copy");copy.Position=UDim2.fromOffset(176,222);copy.Size=UDim2.fromOffset(44,23)
-    local hint=label(root,"hex â€¢ paste to import");hint.TextColor3=self.theme.dim
+    local hint=label(root,"hex | paste to import");hint.TextColor3=self.theme.dim
     hint.Position=UDim2.fromOffset(12,250);hint.Size=UDim2.fromOffset(210,15)
     local hue,saturation,value=control:get():ToHSV()
     local basePaint=control.paint
@@ -639,9 +659,9 @@ function UI:colorpopup(control,title,anchor)
     end
     paint(control:get())
     local dragging
-    local function update(kind)
+    local function update(kind,event)
         if self.popupRoot~=root then return end
-        local mouse=game:GetService("UserInputService"):GetMouseLocation()
+        local mouse=event and event.Position or game:GetService("UserInputService"):GetMouseLocation()
         if kind=="wheel" then
             local size=wheel.AbsoluteSize;local position=wheel.AbsolutePosition
             local dx,dy=mouse.X-position.X-size.X/2,mouse.Y-position.Y-size.Y/2
@@ -653,22 +673,22 @@ function UI:colorpopup(control,title,anchor)
     end
     connect(wheel.InputBegan,function(input)
         if input.UserInputType~=Enum.UserInputType.MouseButton1 then return end
-        local mouse=game:GetService("UserInputService"):GetMouseLocation()
+        local mouse=input.Position or game:GetService("UserInputService"):GetMouseLocation()
         local dx,dy=mouse.X-wheel.AbsolutePosition.X-wheel.AbsoluteSize.X/2,mouse.Y-wheel.AbsolutePosition.Y-wheel.AbsoluteSize.Y/2
         if dx*dx+dy*dy>(wheel.AbsoluteSize.X/2)^2 then return end
-        dragging="wheel";update(dragging)
+        dragging="wheel";update(dragging,input)
     end)
     connect(brightness.InputBegan,function(input)
-        if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging="value";update(dragging) end
+        if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging="value";update(dragging,input) end
     end)
     local input=game:GetService("UserInputService")
     connect(input.InputChanged,function(event)
-        if dragging and event.UserInputType==Enum.UserInputType.MouseMovement then update(dragging) end
+        if dragging and event.UserInputType==Enum.UserInputType.MouseMovement then update(dragging,event) end
     end)
     connect(input.InputEnded,function(event) if event.UserInputType==Enum.UserInputType.MouseButton1 then dragging=nil end end)
     connect(hex.FocusLost,function()
         local parsed=UI.colorFromHex(hex.Text)
-        if parsed then hint.Text="hex • paste to import";control:set(parsed) else hex.Text=UI.colorToHex(control:get());hint.Text="use a six-digit hex color" end
+        if parsed then hint.Text="hex | paste to import";control:set(parsed) else hex.Text=UI.colorToHex(control:get());hint.Text="use a six-digit hex color" end
     end)
     connect(copy.Activated,function()
         local copyText=UI.colorToHex(control:get())
@@ -683,7 +703,7 @@ function UI:colorpopup(control,title,anchor)
         local ok,asset=pcall(function() return ctx.Image and ctx.Image("images/color-wheel.png") end)
         if self.popupRoot~=root then return end
         if ok and type(asset)=="string" and asset~="" then wheel.Image=asset
-        else hint.Text="wheel unavailable â€¢ use hex" end
+        else hint.Text="wheel unavailable | use hex" end
     end)
     return {Root=root,Wheel=wheel,Hex=hex,Brightness=brightness,Copy=copy}
 end
@@ -691,22 +711,42 @@ end
 function UI:closepopup()
     if self.popupCleanup then local cleanup=self.popupCleanup;self.popupCleanup=nil;cleanup() end
     if self.popupRoot then self.popupRoot:Destroy();self.popupRoot=nil end
+    self.popupOwner=nil
+end
+function UI:beginpopup(owner)
+    if owner and self.popupRoot and self.popupOwner==owner then self:closepopup();return false end
+    self:closepopup();self.popupOwner=owner;return true
+end
+function UI:popupPosition(anchor,width,height)
+    local view=workspace.CurrentCamera.ViewportSize
+    local origin=nativeRoot.AbsolutePosition-Vector2.new(nativeRoot.Position.X.Offset,nativeRoot.Position.Y.Offset)
+    local left,top=anchor.AbsolutePosition.X-origin.X,anchor.AbsolutePosition.Y-origin.Y
+    local x=math.clamp(left,8,math.max(8,view.X-width-8))
+    local y=top+anchor.AbsoluteSize.Y+6
+    if y+height>view.Y-8 then y=top-height-6 end
+    return x,math.clamp(y,8,math.max(8,view.Y-height-8))
 end
 function UI:popup(cfg)
-    self:closepopup()
+    local owner=cfg.owner or cfg.follow or cfg.name or cfg.title
+    if not self:beginpopup(owner) then return nil end
     local mouse=game:GetService("UserInputService"):GetMouseLocation()
+    local width,height=cfg.width or 185,math.min(320,38+#(cfg.items or {})*29)
+    local x,y=cfg.x or mouse.X,cfg.y or mouse.Y
+    if typeof(owner)=="Instance" and owner:IsA("GuiObject") then x,y=self:popupPosition(owner,width,height) end
     local root=new("ScrollingFrame",{BackgroundColor3=self.theme.panel,BorderSizePixel=0,
-        Position=UDim2.fromOffset(cfg.x or mouse.X,cfg.y or mouse.Y),Size=UDim2.fromOffset(cfg.width or 185,math.min(320,38+#(cfg.items or {})*29)),
+        Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(width,height),
         AutomaticCanvasSize=Enum.AutomaticSize.Y,CanvasSize=UDim2.new(),ScrollBarThickness=3,ZIndex=1000},self.scr)
     new("UIPadding",{PaddingLeft=UDim.new(0,7),PaddingRight=UDim.new(0,7),PaddingTop=UDim.new(0,7)},root)
     layout(root,3)
     self.popupRoot=root
+    local connections={}
+    self.popupCleanup=function() for _,connection in ipairs(connections) do connection:Disconnect() end end
     local popup=setmetatable({Root=root,Items=root,items=root,__sec={items=root}},Section)
     popup:AddLabel(cfg.title or "options",true)
     for _,item in ipairs(cfg.items or {}) do
         local box=button(root,item.name)
         box.ZIndex=1001
-        keep(box.Activated:Connect(function() self:closepopup();if item.callback then item.callback() end end))
+        connections[#connections+1]=box.Activated:Connect(function() self:closepopup();if item.callback then item.callback() end end)
     end
     return popup
 end
@@ -800,17 +840,19 @@ function UI:gallery(page,cfg)
             local cell=self.cells[slot]
             if not cell then
                 local box=button(scroller,"");box.ZIndex=43
-                local image=new("ImageLabel",{BackgroundTransparency=1,Size=UDim2.new(1,-6,1,-27),Position=UDim2.fromOffset(3,1),ScaleType=Enum.ScaleType.Fit,ZIndex=44},box)
-                local viewport=new("ViewportFrame",{BackgroundTransparency=1,Size=image.Size,Position=image.Position,
+                local image=new("ImageLabel",{Active=false,Selectable=false,BackgroundTransparency=1,Size=UDim2.new(1,-6,1,-27),Position=UDim2.fromOffset(3,1),ScaleType=Enum.ScaleType.Fit,ZIndex=44},box)
+                local viewport=new("ViewportFrame",{Active=false,Selectable=false,BackgroundTransparency=1,Size=image.Size,Position=image.Position,
                     Ambient=Color3.fromRGB(200,200,200),LightColor=Color3.new(1,1,1),Visible=false,ZIndex=44},box)
                 local caption=label(box,"");caption.ZIndex=45;caption.Position=UDim2.new(0,4,1,-25);caption.Size=UDim2.new(1,-8,0,24)
                 caption.TextSize=10;caption.TextTruncate=Enum.TextTruncate.AtEnd
                 local stroke=new("UIStroke",{Color=UI.theme.line,Thickness=1},box)
-                cell={box=box,image=image,viewport=viewport,caption=caption,stroke=stroke};self.cells[slot]=cell
+                local badge=label(box,"");badge.Name="PlayerStatus";badge.TextSize=9;badge.Position=UDim2.fromOffset(4,3);badge.Size=UDim2.new(1,-8,0,12);badge.ZIndex=46
+                cell={box=box,image=image,viewport=viewport,caption=caption,stroke=stroke,badge=badge};self.cells[slot]=cell
                 keep(box.Activated:Connect(function()
                     local row=cell.item
                     if not row or (cfg.PlayerCards and row.remoteProtected) then return end
                     local name=tostring(row.name or row.id)
+                    if cfg.Click then UI:closepopup();cfg.Click(name,row);UI:chime("on");return end
                     if cfg.Multi then self.selected[name]=not self.selected[name] or nil else self.selected=name end
                     self:refresh()
                     if cfg.Callback then cfg.Callback(self.selected) end
@@ -848,7 +890,12 @@ function UI:gallery(page,cfg)
                     end
                 end
                 local selected=cfg.Multi and self.selected[tostring(item.name)] or self.selected==tostring(item.name)
-                cell.stroke.Color=item.remoteProtected and Color3.fromRGB(210,180,100) or item.blacklisted and Color3.fromRGB(180,65,65) or selected and UI.theme.accent or UI.theme.line
+                cell.stroke.Color=(item.remoteListed or item.remoteProtected) and Color3.fromRGB(235,190,75) or item.blacklisted and Color3.fromRGB(255,75,85) or selected and UI.theme.accent or UI.theme.line
+                cell.stroke.Thickness=(item.remoteListed or item.remoteProtected or item.blacklisted or selected) and 2 or 1
+                cell.stroke.Transparency=0
+                cell.badge.Visible=cfg.PlayerCards==true
+                cell.badge.Text=(item.remoteListed or item.remoteProtected) and "protected" or item.blacklisted and "blacklist" or selected and "whitelist" or ""
+                cell.badge.TextColor3=cell.stroke.Color
             end
         end
         for slot=capacity+1,#self.cells do self.cells[slot].box.Visible=false end
