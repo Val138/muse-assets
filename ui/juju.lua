@@ -5,7 +5,7 @@ local drawing = ctx.Drawing
 local LPH_NO_VIRTUALIZE = function(fn) return fn end
 local udim2_new, vector2_new, color3_fromrgb = UDim2.new, Vector2.new, Color3.fromRGB
 local view = workspace.CurrentCamera.ViewportSize
-local menu_position = UDim2.fromOffset(math.max(10, (view.X - 660) / 2), math.max(10, (view.Y - 560) / 2))
+local menu_position = UDim2.fromOffset(math.max(10, (view.X - 620) / 2), math.max(10, (view.Y - 500) / 2))
 local pixel_image_data = ctx.PixelBytes
 local menu = {colors = {background=Color3.fromRGB(5,5,6), section=Color3.fromRGB(10,10,12), accent=Color3.fromRGB(225,225,229)}}
     local drawing_proxy = {}
@@ -184,7 +184,7 @@ local menu = {colors = {background=Color3.fromRGB(5,5,6), section=Color3.fromRGB
 
     local frame = drawing_proxy["new"]("Image", {
         ["Position"] = menu_position,
-        ["Size"] = udim2_new(0, 660, 0, 560),
+        ["Size"] = udim2_new(0, 620, 0, 500),
         ["Color"] = menu["colors"]["background"],
         ["Rounding"] = 4,
         ["Data"] = pixel_image_data,
@@ -206,9 +206,9 @@ local menu = {colors = {background=Color3.fromRGB(5,5,6), section=Color3.fromRGB
     local logo = drawing_proxy["new"]("Image", {
         ["Color"] = menu["colors"]["accent"],
         ["Data"] = ctx.LogoBytes,
-        ["Position"] = udim2_new(0, 15, 0, 15),
+        ["Position"] = udim2_new(0, 14, 0, 16),
         ["Parent"] = inside,
-        ["Size"] = udim2_new(0, 35, 0, 35),
+        ["Size"] = udim2_new(0, 24, 0, 28),
         ["Visible"] = true,
         ["Transparency"] = 1
     })
@@ -219,7 +219,7 @@ local menu = {colors = {background=Color3.fromRGB(5,5,6), section=Color3.fromRGB
         ["Text"] = "muse",
         ["Parent"] = logo,
         ["Position"] = udim2_new(1, 5, 0, 3),
-        ["Size"] = 14,
+        ["Size"] = 12,
         ["Visible"] = true,
         ["Transparency"] = 1
     })
@@ -230,7 +230,7 @@ local menu = {colors = {background=Color3.fromRGB(5,5,6), section=Color3.fromRGB
         ["Text"] = "da hood",
         ["Parent"] = logo,
         ["Position"] = udim2_new(1, 5, 0, 19),
-        ["Size"] = 14,
+        ["Size"] = 12,
         ["Visible"] = true,
         ["Transparency"] = 1
     })
@@ -272,7 +272,7 @@ local UI = {
     quiet = false, configApplying = false, cursors = {}, cursorlist = {},
     theme = {accent=Color3.fromRGB(225,225,229), text=Color3.fromRGB(220,220,224),
         dim=Color3.fromRGB(110,110,117), bg=Color3.fromRGB(5,5,6), head=Color3.fromRGB(14,14,17),
-        panel=Color3.fromRGB(8,8,10), line=Color3.fromRGB(35,35,40)},
+        panel=Color3.fromRGB(8,8,10), line=Color3.fromRGB(52,55,59)},
     conns = {}, FrameRate = 0,
 }
 local function new(class, properties, parent)
@@ -288,14 +288,15 @@ end
 local function text(value) return string.lower(tostring(value or "")) end
 local function label(parent, caption, size)
     return new("TextLabel", {BackgroundTransparency=1, BorderSizePixel=0, Text=text(caption),
-        TextColor3=UI.theme.text, TextSize=size or 12, Font=Enum.Font.GothamMedium,
+        TextColor3=UI.theme.text, TextSize=size or 11, Font=Enum.Font.GothamMedium,
         TextXAlignment=Enum.TextXAlignment.Left, Size=UDim2.new(1,-8,1,0), ZIndex=40}, parent)
 end
 local function button(parent, caption)
     local object = new("TextButton", {Text=text(caption), TextSize=11, Font=Enum.Font.GothamMedium,
         TextColor3=UI.theme.text, BackgroundColor3=UI.theme.head, BorderSizePixel=0,
-        AutoButtonColor=true, Size=UDim2.new(1,0,0,24), ZIndex=42}, parent)
+        AutoButtonColor=true, Size=UDim2.new(1,0,0,20), ZIndex=42}, parent)
     new("UICorner", {CornerRadius=UDim.new(0,3)}, object)
+    new("UIStroke", {Color=UI.theme.line,Thickness=1,Transparency=0.45}, object)
     return object
 end
 local function layout(parent, spacing)
@@ -376,8 +377,8 @@ function Section:SetVisible(value) self.Root.Visible=value==true end
 function Section:SetFeature(flag) self.FeatureFlag=flag end
 function Section:row(caption,height)
     local row=new("Frame",{Name="MuseControl",BackgroundTransparency=1,
-        Size=UDim2.new(1,0,0,height or 25),ZIndex=40},self.items)
-    self.__sec.n=(self.__sec.n or 0)+1
+        Size=UDim2.new(1,0,0,height or 18),ZIndex=40},self.items)
+    self.__sec.n=(self.__sec.n or 0)+2
     row.LayoutOrder=self.__sec.n
     return row,label(row,caption)
 end
@@ -413,15 +414,15 @@ function Section:AddLabel(caption,status)
     function row:AddToggle(cfg)
         cfg=cfg or {}
         local root,body=section:row(caption)
-        body.Position=UDim2.fromOffset(23,0);body.Size=UDim2.new(1,-23,1,0)
-        local box=button(root,"");box.Size=UDim2.fromOffset(16,16);box.Position=UDim2.fromOffset(0,4)
+        row.Root,row.Body=root,body
+        body.Position=UDim2.fromOffset(18,0);body.Size=UDim2.new(1,-45,1,0)
+        local box=button(root,"");box.Size=UDim2.fromOffset(11,11);box.Position=UDim2.fromOffset(0,3)
         new("UIStroke",{Color=UI.theme.line,Thickness=1},box)
         local control=entry(section,root,box,cfg.Flag,"boolean",cfg.Default==true,cfg.Callback)
         control.paint=function(v)
-            box.Text=v and "Ã¢Å“â€œ" or ""
+            box.Text=""
             box.BackgroundColor3=v and UI.theme.accent or UI.theme.panel
-            box.TextColor3=v and UI.theme.bg or UI.theme.text
-            if row.options then row.options.Root.Visible=v==true end
+            body.TextColor3=v and UI.theme.text or UI.theme.dim
         end
         control.paint(cfg.Default==true)
         keep(box.Activated:Connect(function() control:set(not control:get()) end))
@@ -430,9 +431,10 @@ function Section:AddLabel(caption,status)
     end
     function row:AddKeybind(cfg)
         cfg=cfg or {}
+        if row.toggle then return row:AddOption():AddLabel("keybind"):AddKeybind(cfg) end
         local root,body=section:row(caption)
         body.Size=UDim2.new(0.55,0,1,0)
-        local box=button(root,"none");box.Position=UDim2.new(0.57,0,0,2);box.Size=UDim2.new(0.43,0,0,21)
+        local box=button(root,"none");box.Position=UDim2.new(0.57,0,0,0);box.Size=UDim2.new(0.43,0,0,18)
         local control=entry(section,root,box,cfg.Flag,"enum",nil,function(v)
             if cfg.Callback then cfg.Callback(typeof(v)=="EnumItem" and v.Name or v) end
         end)
@@ -442,11 +444,12 @@ function Section:AddLabel(caption,status)
     end
     function row:AddSlider(cfg)
         cfg=cfg or {}
-        local root,body=section:row(caption,38)
-        body.Size=UDim2.new(0.65,0,0,19)
+        if row.toggle then return row:AddOption():AddLabel(cfg.Name or "amount"):AddSlider(cfg) end
+        local root,body=section:row(caption,28)
+        body.Size=UDim2.new(0.65,0,0,15)
         local valueLabel=label(root,"");valueLabel.Position=UDim2.new(0.65,0,0,0)
-        valueLabel.Size=UDim2.new(0.35,0,0,19);valueLabel.TextXAlignment=Enum.TextXAlignment.Right
-        local track=button(root,"");track.Position=UDim2.fromOffset(0,26);track.Size=UDim2.new(1,0,0,4)
+        valueLabel.Size=UDim2.new(0.35,0,0,15);valueLabel.TextXAlignment=Enum.TextXAlignment.Right
+        local track=button(root,"");track.Position=UDim2.fromOffset(0,20);track.Size=UDim2.new(1,0,0,6)
         local fill=new("Frame",{BackgroundColor3=UI.theme.accent,BorderSizePixel=0,Size=UDim2.new(0,0,1,0),ZIndex=43},track)
         local minimum,maximum=cfg.Min or 0,cfg.Max or 100
         local step=10^-(cfg.Rounding or 0)
@@ -476,8 +479,9 @@ function Section:AddLabel(caption,status)
     end
     function row:AddDropdown(cfg)
         cfg=cfg or {}
-        local root,body=section:row(caption,44);body.Size=UDim2.new(1,0,0,17)
-        local box=button(root,"");box.Position=UDim2.fromOffset(0,19)
+        if row.toggle then return row:AddOption():AddLabel(cfg.Name or "mode"):AddDropdown(cfg) end
+        local root,body=section:row(caption,34);body.Size=UDim2.new(1,0,0,14)
+        local box=button(root,"");box.Position=UDim2.fromOffset(0,15)
         local choices=cfg.Values or {}
         local initial=cfg.Default
         if cfg.Multi and type(initial)~="table" then initial={} end
@@ -512,8 +516,11 @@ function Section:AddLabel(caption,status)
     end
     function row:AddColorPicker(cfg)
         cfg=cfg or {}
-        local root,body=section:row(caption)
-        local box=button(root,"");box.Position=UDim2.new(1,-35,0,3);box.Size=UDim2.fromOffset(35,18)
+        local root,body
+        if row.toggle then root,body=row.Root,row.Body else root,body=section:row(caption) end
+        body.Size=UDim2.new(1,-55,1,0)
+        local box=button(root,"");box.Position=UDim2.new(1,row.gear and -46 or -24,0,3);box.Size=UDim2.fromOffset(21,11)
+        row.colorBox=box
         local control=entry(section,root,box,cfg.Flag,"color",cfg.Default or Color3.new(1,1,1),cfg.Callback)
         control.paint=function(v) if typeof(v)=="Color3" then box.BackgroundColor3=v end end
         control.paint(control:get())
@@ -544,10 +551,21 @@ function Section:AddLabel(caption,status)
     end
     function row:AddOption()
         if row.options then return row.options end
-        local root=new("Frame",{BackgroundTransparency=1,Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,
-            Visible=row.toggle and row.toggle:get()==true or false},section.items)
-        layout(root,3)
-        row.options=setmetatable({Root=root,Items=root,items=root,__sec={items=root}},Section)
+        if not row.Root then row.Root,row.Body=section:row(caption) end
+        local root=new("Frame",{Name="MuseFeatureOptions",BackgroundColor3=UI.theme.head,
+            Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,Visible=false,
+            LayoutOrder=row.Root.LayoutOrder+1},section.items)
+        new("UIPadding",{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,7),PaddingTop=UDim.new(0,5),PaddingBottom=UDim.new(0,5)},root)
+        layout(root,2)
+        row.options=setmetatable({Root=root,Items=root,items=root,__sec={items=root,n=0}},Section)
+        local gear=button(row.Root,"\u{2699}")
+        gear.Name="MuseOptionsButton";gear.BackgroundTransparency=1
+        gear.Position=UDim2.new(1,-17,0,0);gear.Size=UDim2.fromOffset(17,18)
+        row.gear=gear
+        if row.colorBox then row.colorBox.Position=UDim2.new(1,-46,0,3) end
+        keep(gear.Activated:Connect(function()
+            root.Visible=not root.Visible;gear.Text=root.Visible and "-" or "\u{2699}"
+        end))
         return row.options
     end
     function row:SetText(v) self.Name=v end
@@ -597,9 +615,10 @@ function UI:tab(name)
         local column=new("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,
             Position=side=="right" and UDim2.new(0.5,5,0,0) or UDim2.new(),
             Size=side=="full" and UDim2.fromScale(1,1) or UDim2.new(0.5,-5,1,0),
-            ScrollBarThickness=2,ScrollBarImageColor3=UI.theme.dim,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,
+            ScrollBarThickness=1,ScrollBarImageColor3=UI.theme.dim,CanvasSize=UDim2.new(),AutomaticCanvasSize=Enum.AutomaticSize.Y,
             Visible=side~="full",ZIndex=40},root)
-        layout(column,10);page.columns[side]=column
+        new("UIPadding",{PaddingTop=UDim.new(0,6),PaddingLeft=UDim.new(0,2),PaddingRight=UDim.new(0,3)},column)
+        layout(column,12);page.columns[side]=column
     end
     local changed=Instance.new("BindableEvent")
     page.Signal={GetValue=function() return root.Visible end,Connect=function(_,fn) return keep(changed.Event:Connect(fn)) end}
@@ -619,14 +638,16 @@ function UI:tab(name)
         local side=cfg.Position or cfg.side or "left"
         if side=="full" then self.columns.left.Visible=false;self.columns.right.Visible=false;self.columns.full.Visible=true end
         local panel=new("Frame",{Name="MuseSection_"..text(cfg.Name or cfg.name),BackgroundColor3=UI.theme.panel,
-            BorderSizePixel=0,Size=UDim2.new(1,-3,0,0),AutomaticSize=Enum.AutomaticSize.Y,ZIndex=40},self.columns[side])
-        layout(panel,4)
-        new("UIPadding",{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8),PaddingBottom=UDim.new(0,8)},panel)
-        local title=new("Frame",{BackgroundTransparency=1,Size=UDim2.new(1,0,0,25),ZIndex=40},panel)
-        label(title,cfg.Name or cfg.name)
-        new("Frame",{BorderSizePixel=0,BackgroundColor3=UI.theme.line,Position=UDim2.new(0,0,1,-1),Size=UDim2.new(1,0,0,1),ZIndex=40},title)
-        local items=new("Frame",{BackgroundTransparency=1,Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,ZIndex=40},panel)
-        layout(items,3)
+            BorderSizePixel=0,Size=UDim2.new(1,-3,0,0),AutomaticSize=Enum.AutomaticSize.Y,LayoutOrder=#self.sections+1,ZIndex=40},self.columns[side])
+        layout(panel,3)
+        new("UIStroke",{Color=UI.theme.line,Thickness=1,Transparency=0.25},panel)
+        new("UICorner",{CornerRadius=UDim.new(0,3)},panel)
+        new("UIPadding",{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8),PaddingTop=UDim.new(0,5),PaddingBottom=UDim.new(0,8)},panel)
+        local title=new("Frame",{BackgroundTransparency=1,LayoutOrder=-1,Size=UDim2.new(1,0,0,14),ZIndex=40},panel)
+        local heading=label(title,cfg.Name or cfg.name)
+        heading.TextColor3=UI.theme.dim;heading.TextSize=11
+        local items=new("Frame",{BackgroundTransparency=1,LayoutOrder=0,Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,ZIndex=40},panel)
+        layout(items,2)
         local section=setmetatable({Root=panel,Items=items,items=items,__sec={items=items,panel=panel,header=title,n=0}},Section)
         self.sections[#self.sections+1]=section
         return section
@@ -645,7 +666,9 @@ function UI:gallery(page,cfg)
     local search=new("TextBox",{Text="",PlaceholderText="search",BackgroundColor3=UI.theme.head,
         TextColor3=UI.theme.text,TextSize=11,Font=Enum.Font.GothamMedium,ClearTextOnFocus=false,
         BorderSizePixel=0,Size=UDim2.new(1,0,0,23),ZIndex=42},section.items)
-    local scroller=new("ScrollingFrame",{BackgroundTransparency=1,BorderSizePixel=0,
+    section.__sec.n=(section.__sec.n or 0)+2;search.LayoutOrder=section.__sec.n
+    section.__sec.n=section.__sec.n+2
+    local scroller=new("ScrollingFrame",{LayoutOrder=section.__sec.n,BackgroundTransparency=1,BorderSizePixel=0,
         Size=UDim2.new(1,0,0,cfg.Height or 260),CanvasSize=UDim2.new(),ScrollBarThickness=2,ZIndex=42},section.items)
     local empty=label(scroller,cfg.Empty or "nothing here");empty.TextXAlignment=Enum.TextXAlignment.Center
     local gallery={data=cfg.Values or {},selected=cfg.Multi and {} or nil,cells={},filtered={},Root=section.Root}
