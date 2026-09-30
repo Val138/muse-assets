@@ -301,7 +301,18 @@ end
 local function layout(parent, spacing)
     new("UIListLayout", {Padding=UDim.new(0,spacing or 5), SortOrder=Enum.SortOrder.LayoutOrder},parent)
 end
-local nativeRoot = inside.object.__OBJECT
+-- Drawing proxies are siblings in the ScreenGui, not actual GuiObject parents.
+-- A separate overlay keeps native controls above the opaque right-side drawing.
+local shellInside = inside.object.__OBJECT
+local nativeRoot = new("Frame", {Name="MuseNativeOverlay",BackgroundTransparency=1,
+    BorderSizePixel=0,ZIndex=50},drawing.sgui)
+local function syncOverlay()
+    nativeRoot.Position=shellInside.Position
+    nativeRoot.Size=shellInside.Size
+end
+keep(shellInside:GetPropertyChangedSignal("Position"):Connect(syncOverlay))
+keep(shellInside:GetPropertyChangedSignal("Size"):Connect(syncOverlay))
+syncOverlay()
 local content = new("Frame", {Name="MusePages",BackgroundTransparency=1,
     Position=UDim2.fromOffset(108,12), Size=UDim2.new(1,-121,1,-24), ZIndex=35}, nativeRoot)
 frame.Visible = true
@@ -328,6 +339,7 @@ end))
 function UI:render(value)
     self.shown=value==true
     frame.Visible=self.shown
+    nativeRoot.Visible=self.shown
     content.Visible=self.shown
     if not self.shown then self:closepopup() end
     if self.shown and self.ActiveTab then
@@ -406,7 +418,7 @@ function Section:AddLabel(caption,status)
         new("UIStroke",{Color=UI.theme.line,Thickness=1},box)
         local control=entry(section,root,box,cfg.Flag,"boolean",cfg.Default==true,cfg.Callback)
         control.paint=function(v)
-            box.Text=v and "✓" or ""
+            box.Text=v and "Ã¢Å“â€œ" or ""
             box.BackgroundColor3=v and UI.theme.accent or UI.theme.panel
             box.TextColor3=v and UI.theme.bg or UI.theme.text
             if row.options then row.options.Root.Visible=v==true end
