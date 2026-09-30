@@ -525,16 +525,7 @@ function Section:AddLabel(caption,status)
         control.paint=function(v) if typeof(v)=="Color3" then box.BackgroundColor3=v end end
         control.paint(control:get())
         keep(box.Activated:Connect(function()
-            local items={}
-            local channels={"r","g","b"}
-            local popup=UI:popup({title=caption,items=items})
-            popup.Root.Size=UDim2.fromOffset(185,170)
-            for index,name in ipairs(channels) do
-                local holder=popup:AddLabel(name):AddSlider({Min=0,Max=255,Default=math.floor(({control:get().R,control:get().G,control:get().B})[index]*255),Callback=function(v)
-                    local current=control:get();local rgb={current.R*255,current.G*255,current.B*255};rgb[index]=v
-                    control:set(Color3.fromRGB(rgb[1],rgb[2],rgb[3]))
-                end})
-            end
+            UI:colorpopup(control,caption,box)
         end))
         return control
     end
@@ -578,7 +569,129 @@ function Section:AddButton(cfg)
     return {__el={row=root},Root=root}
 end
 
-function UI:closepopup() if self.popupRoot then self.popupRoot:Destroy();self.popupRoot=nil end end
+-- One shared HSV wheel popup serves every color control. No frame-loop work.
+function UI.colorToHex(color)
+    return string.format("#%02X%02X%02X",math.floor(color.R*255+0.5),math.floor(color.G*255+0.5),math.floor(color.B*255+0.5))
+end
+function UI.colorFromHex(value)
+    local hex=tostring(value or ""):match("^%s*#?(%x%x%x%x%x%x)%s*$")
+    if not hex then return nil end
+    return Color3.fromRGB(tonumber(hex:sub(1,2),16),tonumber(hex:sub(3,4),16),tonumber(hex:sub(5,6),16))
+end
+function UI.wheelHSV(dx,dy,radius)
+    return (math.atan2(dx,-dy)/(2*math.pi))%1,math.clamp(math.sqrt(dx*dx+dy*dy)/math.max(radius,1),0,1)
+end
+function UI:colorpopup(control,title,anchor)
+    self:closepopup()
+    local width,height=232,275
+    local view=workspace.CurrentCamera.ViewportSize
+    -- Convert screen positions to the shared ScreenGui's coordinates.
+    local origin=nativeRoot.AbsolutePosition-Vector2.new(nativeRoot.Position.X.Offset,nativeRoot.Position.Y.Offset)
+    local x=math.clamp(anchor.AbsolutePosition.X-origin.X+anchor.AbsoluteSize.X-width,8,math.max(8,view.X-width-8))
+    local y=math.clamp(anchor.AbsolutePosition.Y-origin.Y+anchor.AbsoluteSize.Y+6,8,math.max(8,view.Y-height-8))
+    local root=new("Frame",{Name="MuseColorPicker",BackgroundColor3=self.theme.panel,BorderSizePixel=0,
+        Position=UDim2.fromOffset(x,y),Size=UDim2.fromOffset(width,height),ZIndex=1100},self.scr)
+    new("UICorner",{CornerRadius=UDim.new(0,4)},root)
+    new("UIStroke",{Color=self.theme.line,Thickness=1},root)
+    self.popupRoot=root
+    local connections={}
+    local function connect(signal,callback) connections[#connections+1]=signal:Connect(callback) end
+    local heading=label(root,title);heading.Position=UDim2.fromOffset(12,7);heading.Size=UDim2.fromOffset(175,17)
+    local close=button(root,"x");close.Position=UDim2.new(1,-26,0,6);close.Size=UDim2.fromOffset(18,18)
+    connect(close.Activated,function() self:closepopup() end)
+    local wheel=new("ImageButton",{Name="ColorWheel",BackgroundTransparency=1,BorderSizePixel=0,
+        AutoButtonColor=false,Position=UDim2.fromOffset(12,33),Size=UDim2.fromOffset(176,176),ZIndex=1101},root)
+    local marker=new("Frame",{Name="WheelMarker",AnchorPoint=Vector2.new(0.5,0.5),BackgroundColor3=Color3.new(1,1,1),
+        BorderSizePixel=0,Size=UDim2.fromOffset(8,8),ZIndex=1102},wheel)
+    new("UICorner",{CornerRadius=UDim.new(1,0)},marker)
+    new("UIStroke",{Color=Color3.new(0,0,0),Thickness=1},marker)
+    local brightness=new("TextButton",{Name="Brightness",Text="",AutoButtonColor=false,BorderSizePixel=0,
+        BackgroundColor3=Color3.new(1,1,1),Position=UDim2.fromOffset(202,33),Size=UDim2.fromOffset(14,176),ZIndex=1101},root)
+    local gradient=new("UIGradient",{Rotation=90},brightness)
+    new("UIStroke",{Color=self.theme.line,Thickness=1},brightness)
+    local valueMarker=new("Frame",{AnchorPoint=Vector2.new(0,0.5),BackgroundColor3=Color3.new(1,1,1),
+        BorderSizePixel=0,Size=UDim2.new(1,4,0,3),Position=UDim2.fromOffset(-2,0),ZIndex=1102},brightness)
+    new("UIStroke",{Color=Color3.new(0,0,0),Thickness=1},valueMarker)
+    local preview=new("Frame",{Name="ColorPreview",BorderSizePixel=0,Position=UDim2.fromOffset(12,222),Size=UDim2.fromOffset(22,23)},root)
+    new("UIStroke",{Color=self.theme.line,Thickness=1},preview)
+    local hex=new("TextBox",{Name="HexColor",Text="",PlaceholderText="#rrggbb",ClearTextOnFocus=false,
+        TextColor3=self.theme.text,BackgroundColor3=self.theme.head,BorderSizePixel=0,Font=Enum.Font.Code,
+        TextSize=12,Position=UDim2.fromOffset(42,222),Size=UDim2.fromOffset(128,23)},root)
+    new("UIStroke",{Color=self.theme.line,Thickness=1},hex)
+    local copy=button(root,"copy");copy.Position=UDim2.fromOffset(176,222);copy.Size=UDim2.fromOffset(44,23)
+    local hint=label(root,"hex â€¢ paste to import");hint.TextColor3=self.theme.dim
+    hint.Position=UDim2.fromOffset(12,250);hint.Size=UDim2.fromOffset(210,15)
+    local hue,saturation,value=control:get():ToHSV()
+    local basePaint=control.paint
+    local adjustingColor=false
+    local function paint(color)
+        if not adjustingColor then hue,saturation,value=color:ToHSV() end
+        local angle=hue*2*math.pi
+        marker.Position=UDim2.fromScale(0.5+math.sin(angle)*saturation*0.5,0.5-math.cos(angle)*saturation*0.5)
+        wheel.ImageColor3=Color3.new(value,value,value)
+        gradient.Color=ColorSequence.new(Color3.fromHSV(hue,saturation,1),Color3.new(0,0,0))
+        valueMarker.Position=UDim2.new(0,-2,1-value,0)
+        preview.BackgroundColor3=color;hex.Text=UI.colorToHex(color);hex.TextColor3=self.theme.text
+    end
+    control.paint=function(color)
+        if basePaint then basePaint(color) end
+        if self.popupRoot==root then paint(color) end
+    end
+    paint(control:get())
+    local dragging
+    local function update(kind)
+        if self.popupRoot~=root then return end
+        local mouse=game:GetService("UserInputService"):GetMouseLocation()
+        if kind=="wheel" then
+            local size=wheel.AbsoluteSize;local position=wheel.AbsolutePosition
+            local dx,dy=mouse.X-position.X-size.X/2,mouse.Y-position.Y-size.Y/2
+            hue,saturation=UI.wheelHSV(dx,dy,math.min(size.X,size.Y)/2)
+        else value=1-math.clamp((mouse.Y-brightness.AbsolutePosition.Y)/math.max(brightness.AbsoluteSize.Y,1),0,1) end
+        adjustingColor=true
+        control:set(Color3.fromHSV(hue,saturation,value),true)
+        adjustingColor=false
+    end
+    connect(wheel.InputBegan,function(input)
+        if input.UserInputType~=Enum.UserInputType.MouseButton1 then return end
+        local mouse=game:GetService("UserInputService"):GetMouseLocation()
+        local dx,dy=mouse.X-wheel.AbsolutePosition.X-wheel.AbsoluteSize.X/2,mouse.Y-wheel.AbsolutePosition.Y-wheel.AbsoluteSize.Y/2
+        if dx*dx+dy*dy>(wheel.AbsoluteSize.X/2)^2 then return end
+        dragging="wheel";update(dragging)
+    end)
+    connect(brightness.InputBegan,function(input)
+        if input.UserInputType==Enum.UserInputType.MouseButton1 then dragging="value";update(dragging) end
+    end)
+    local input=game:GetService("UserInputService")
+    connect(input.InputChanged,function(event)
+        if dragging and event.UserInputType==Enum.UserInputType.MouseMovement then update(dragging) end
+    end)
+    connect(input.InputEnded,function(event) if event.UserInputType==Enum.UserInputType.MouseButton1 then dragging=nil end end)
+    connect(hex.FocusLost,function()
+        local parsed=UI.colorFromHex(hex.Text)
+        if parsed then hint.Text="hex • paste to import";control:set(parsed) else hex.Text=UI.colorToHex(control:get());hint.Text="use a six-digit hex color" end
+    end)
+    connect(copy.Activated,function()
+        local copyText=UI.colorToHex(control:get())
+        if setclipboard then setclipboard(copyText);hint.Text="hex copied"
+        else hex:CaptureFocus();hex.SelectionStart=1;hex.CursorPosition=#hex.Text+1 end
+    end)
+    self.popupCleanup=function()
+        dragging=nil;control.paint=basePaint
+        for _,connection in ipairs(connections) do connection:Disconnect() end
+    end
+    task.spawn(function()
+        local ok,asset=pcall(function() return ctx.Image and ctx.Image("images/color-wheel.png") end)
+        if self.popupRoot~=root then return end
+        if ok and type(asset)=="string" and asset~="" then wheel.Image=asset
+        else hint.Text="wheel unavailable â€¢ use hex" end
+    end)
+    return {Root=root,Wheel=wheel,Hex=hex,Brightness=brightness,Copy=copy}
+end
+
+function UI:closepopup()
+    if self.popupCleanup then local cleanup=self.popupCleanup;self.popupCleanup=nil;cleanup() end
+    if self.popupRoot then self.popupRoot:Destroy();self.popupRoot=nil end
+end
 function UI:popup(cfg)
     self:closepopup()
     local mouse=game:GetService("UserInputService"):GetMouseLocation()
@@ -623,6 +736,7 @@ function UI:tab(name)
     local changed=Instance.new("BindableEvent")
     page.Signal={GetValue=function() return root.Visible end,Connect=function(_,fn) return keep(changed.Event:Connect(fn)) end}
     function page:select()
+        UI:closepopup()
         for _,other in ipairs(UI.tabs) do
             local selected=other==self
             other.Root.Visible=selected
