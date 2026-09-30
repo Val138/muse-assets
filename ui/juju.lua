@@ -273,7 +273,7 @@ local UI = {
     theme = {accent=Color3.fromRGB(225,225,229), text=Color3.fromRGB(220,220,224),
         dim=Color3.fromRGB(110,110,117), bg=Color3.fromRGB(5,5,6), head=Color3.fromRGB(14,14,17),
         panel=Color3.fromRGB(8,8,10), line=Color3.fromRGB(52,55,59)},
-    conns = {}, FrameRate = 0,
+    conns = {}, FrameRate = 0, rowMap = {}, rows = {}, options = {}, sections = {}, fits = {}, gates = {}, dependencies = {},
 }
 local function new(class, properties, parent)
     local object = Instance.new(class)
@@ -300,10 +300,23 @@ local function button(parent, caption)
     return object
 end
 local function layout(parent, spacing)
-    new("UIListLayout", {Padding=UDim.new(0,spacing or 5), SortOrder=Enum.SortOrder.LayoutOrder},parent)
+    return new("UIListLayout", {Padding=UDim.new(0,spacing or 5), SortOrder=Enum.SortOrder.LayoutOrder},parent)
 end
 -- Drawing proxies are siblings in the ScreenGui, not actual GuiObject parents.
 -- A separate overlay keeps native controls above the opaque right-side drawing.
+local function fitVertical(parent,list,padding)
+    parent.AutomaticSize=Enum.AutomaticSize.None
+    local function resize()
+        if not UI.alive then return end
+        local bounds=list.AbsoluteContentSize
+        local height=math.max(0,(bounds and bounds.Y or 0)+(padding or 0))
+        if parent.Size.Y.Offset~=height or parent.Size.Y.Scale~=0 then
+            parent.Size=UDim2.new(parent.Size.X.Scale,parent.Size.X.Offset,0,height)
+        end
+    end
+    keep(list:GetPropertyChangedSignal("AbsoluteContentSize"):Connect(resize))
+    UI.fits[#UI.fits+1]=resize;resize()
+end
 local shellInside = inside.object.__OBJECT
 local nativeRoot = new("Frame", {Name="MuseNativeOverlay",BackgroundTransparency=1,
     BorderSizePixel=0,ZIndex=50},drawing.sgui)
@@ -380,17 +393,22 @@ function Section:row(caption,height)
         Size=UDim2.new(1,0,0,height or 18),ZIndex=40},self.items)
     self.__sec.n=(self.__sec.n or 0)+2
     row.LayoutOrder=self.__sec.n
+    local meta={Root=row,Size=row.Size,Section=self,Members={}}
+    UI.rowMap[row]=meta;UI.rows[#UI.rows+1]=meta
     return row,label(row,caption)
 end
 local function entry(section,row,widget,flag,kind,initial,callback)
     local value=initial
-    local control={__el={row=row}, row=row, Root=row, widget=widget}
+    local control={__el={row=row}, row=row, Root=row, widget=widget,Flag=flag}
+    local meta=UI.rowMap[row]
+    if meta then meta.Members[#meta.Members+1]=control end
     function control:get() return value end
     function control:GetValue() return value end
     function control:set(v,silent)
         value=v
         if self.paint then self.paint(v) end
         if callback then callback(v) end
+        if UI.RefreshCompact and not UI.configApplying then UI:RefreshCompact() end
         if not silent and not UI.quiet then UI:chime(v==false and "off" or "on") end
     end
     function control:SetValue(v) self:set(v,true) end
@@ -435,9 +453,11 @@ function Section:AddLabel(caption,status)
         local root,body=section:row(caption)
         body.Size=UDim2.new(0.55,0,1,0)
         local box=button(root,"none");box.Position=UDim2.new(0.57,0,0,0);box.Size=UDim2.new(0.43,0,0,18)
+        row.Root,row.Body=root,body
         local control=entry(section,root,box,cfg.Flag,"enum",nil,function(v)
             if cfg.Callback then cfg.Callback(typeof(v)=="EnumItem" and v.Name or v) end
         end)
+        row.keybind=control
         control.paint=function(v) box.Text=v and text(typeof(v)=="EnumItem" and v.Name or v) or "none" end
         keep(box.Activated:Connect(function() binding=control;UI.capturing=true;box.Text="..." end))
         return control
@@ -569,16 +589,21 @@ function Section:AddLabel(caption,status)
             Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,Visible=false,
             LayoutOrder=row.Root.LayoutOrder+1},section.items)
         new("UIPadding",{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,7),PaddingTop=UDim.new(0,5),PaddingBottom=UDim.new(0,5)},root)
-        layout(root,2)
+        local optionLayout=layout(root,2);fitVertical(root,optionLayout,10)
         row.options=setmetatable({Root=root,Items=root,items=root,__sec={items=root,n=0}},Section)
         local gear=button(row.Root,"\u{2699}")
         gear.Name="MuseOptionsButton";gear.BackgroundTransparency=1
         gear.Position=UDim2.new(1,-17,0,0);gear.Size=UDim2.fromOffset(17,18)
         row.gear=gear
+        UI.options[#UI.options+1]={Owner=row,Root=root,Section=section}
+        if row.keybind then row.keybind.widget.Size=UDim2.new(0.43,-22,0,18) end
         if row.colorBox then row.colorBox.Position=UDim2.new(1,-46,0,3) end
         keep(gear.Activated:Connect(function()
             UI:closepopup()
-            root.Visible=not root.Visible;gear.Text=root.Visible and "-" or "\u{2699}"
+            if UI.compactInstalled then
+                if row.optionActive then row.optionManual=not root.Visible end
+                UI:RefreshCompact()
+            else root.Visible=not root.Visible;gear.Text=root.Visible and "-" or "\u{2699}" end
         end))
         return row.options
     end
@@ -793,7 +818,7 @@ function UI:tab(name)
         if side=="full" then self.columns.left.Visible=false;self.columns.right.Visible=false;self.columns.full.Visible=true end
         local panel=new("Frame",{Name="MuseSection_"..text(cfg.Name or cfg.name),BackgroundColor3=UI.theme.panel,
             BorderSizePixel=0,Size=UDim2.new(1,-3,0,0),AutomaticSize=Enum.AutomaticSize.Y,LayoutOrder=#self.sections+1,ZIndex=40},self.columns[side])
-        layout(panel,3)
+        local panelLayout=layout(panel,3)
         new("UIStroke",{Color=UI.theme.line,Thickness=1,Transparency=0.25},panel)
         new("UICorner",{CornerRadius=UDim.new(0,3)},panel)
         new("UIPadding",{PaddingLeft=UDim.new(0,8),PaddingRight=UDim.new(0,8),PaddingTop=UDim.new(0,5),PaddingBottom=UDim.new(0,8)},panel)
@@ -801,9 +826,10 @@ function UI:tab(name)
         local heading=label(title,cfg.Name or cfg.name)
         heading.TextColor3=UI.theme.dim;heading.TextSize=11
         local items=new("Frame",{BackgroundTransparency=1,LayoutOrder=0,Size=UDim2.new(1,0,0,0),AutomaticSize=Enum.AutomaticSize.Y,ZIndex=40},panel)
-        layout(items,2)
+        local itemLayout=layout(items,2);fitVertical(items,itemLayout,0);fitVertical(panel,panelLayout,13)
         local section=setmetatable({Root=panel,Items=items,items=items,__sec={items=items,panel=panel,header=title,n=0}},Section)
         self.sections[#self.sections+1]=section
+        UI.sections[#UI.sections+1]=section
         return section
     end
     function page:section(cfg) return self:AddSection({Name=cfg.name,Position=cfg.side}) end
@@ -856,6 +882,7 @@ function UI:gallery(page,cfg)
                     if cfg.Multi then self.selected[name]=not self.selected[name] or nil else self.selected=name end
                     self:refresh()
                     if cfg.Callback then cfg.Callback(self.selected) end
+                    UI:RefreshCompact()
                     UI:chime("on")
                 end))
                 keep(box.MouseButton2Click:Connect(function()
@@ -911,6 +938,7 @@ function UI:gallery(page,cfg)
     function gallery:set(value,silent)
         self.selected=cfg.Multi and (type(value)=="table" and table.clone(value) or {}) or value
         self:refresh();if not silent and cfg.Callback then cfg.Callback(self.selected) end
+        UI:RefreshCompact()
     end
     function gallery:get() return self.selected end
     keep(search:GetPropertyChangedSignal("Text"):Connect(function() scroller.CanvasPosition=Vector2.zero;gallery:setdata(gallery.data) end))
@@ -943,6 +971,7 @@ function UI:apply(data)
         for flag,value in pairs(data.flags or {}) do if self.pool[flag] then self.pool[flag].set(decode(value)) end end
     end)
     self.quiet,self.configApplying=false,false
+    self:RefreshCompact()
     return ok,err
 end
 function UI:store(name)
@@ -953,6 +982,71 @@ function UI:store(name)
     writefile("Muse/Config/"..name..".json",game:GetService("HttpService"):JSONEncode(data))
     return data
 end
+function UI:value(flag)
+    local record=self.pool[flag]
+    return record and record.get() or nil
+end
+function UI:active(...)
+    for index=1,select("#",...) do
+        local value=self:value(select(index,...))
+        if value~=nil and value~=false and value~="None" and value~="none" and value~="Unknown" and value~="Off" and value~="off" then return true end
+    end
+    return false
+end
+function UI:SetSectionActivity(section,predicate,primaries)
+    section.Activity=predicate;section.Primaries={}
+    for _,flag in ipairs(primaries or {}) do section.Primaries[flag]=true end
+end
+function UI:Gate(flag,predicate) self.gates[flag]=predicate end
+function UI:Dependency(flag,predicate) self.dependencies[flag]=predicate end
+function UI:RefreshCompact()
+    if not self.compactInstalled or self.refreshingCompact then return end
+    self.refreshingCompact=true
+    local function allowed(control,section)
+        local gate=self.gates[control.Flag]
+        local result=true
+        if gate then result=gate()==true
+        elseif section.Activity and not section.Primaries[control.Flag] then result=section.Activity()==true end
+        local dependency=self.dependencies[control.Flag]
+        return result and (not dependency or dependency()==true)
+    end
+    for _,meta in ipairs(self.rows) do
+        local visible=false
+        if #meta.Members==0 then visible=not meta.Section.Activity or meta.Section.Activity()==true end
+        for _,control in ipairs(meta.Members) do
+            local show=allowed(control,meta.Section)
+            control.widget.Visible=show
+            visible=visible or show
+        end
+        meta.Root.Size=meta.Size
+        meta.Root.Visible=visible
+    end
+    for _,option in ipairs(self.options) do
+        local owner=option.Owner
+        local active=(owner.toggle and owner.toggle:get()==true) or (owner.keybind and owner.keybind:get()~=nil) or false
+        local gate=owner.toggle and self.gates["options:"..tostring(owner.toggle.Flag)]
+        if gate then active=gate()==true end
+        if owner.optionActive~=active then owner.optionManual=nil;owner.optionActive=active end
+        option.Root.Visible=active and owner.optionManual~=false
+        owner.gear.Text=option.Root.Visible and "-" or "\u{2699}"
+        owner.gear.TextColor3=active and self.theme.text or self.theme.dim
+    end
+    for _,section in ipairs(self.sections) do
+        if section.Activity then
+            for _,child in ipairs(section.items:GetChildren()) do
+                if child:IsA("GuiObject") and not self.rowMap[child] then
+                    local optionRoot=false
+                    for _,option in ipairs(self.options) do if option.Root==child then optionRoot=true;break end end
+                    if not optionRoot then child.Visible=section.Activity()==true end
+                end
+            end
+        end
+        if section.SectionGate then section.Root.Visible=section.SectionGate()==true end
+    end
+    for _,resize in ipairs(self.fits) do resize() end
+    self.refreshingCompact=false
+end
+
 function UI:configs(page)
     local section=page:AddSection({Name="configs",Position="right"})
     local name=""
