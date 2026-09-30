@@ -58,6 +58,9 @@
         Drawing2.Font.Count = id
         Drawing2.Font.Fonts[name] = id
         Drawing2.Font.Enums[id] = font
+        local bounds = Drawing2.__TEXT_BOUND_PARAMS
+        bounds.Text, bounds.Size, bounds.Font, bounds.Width = "Text", 12, font, huge
+        GetTextBoundsAsync(TextService, bounds)
         return id
     end
 
@@ -644,19 +647,24 @@
   
     function Image:__SET_IMAGE(data, isUri)
         task.spawn(function()
+            if not self.__OBJECT_EXISTS then return end
             if isUri then
                 data = HttpGet(game, data, true)
             end
   
             if not Drawing2.__IMAGE_CACHE[data] then
-                local TempPath = HttpService:GenerateGUID(false)
+                if not isfolder("Muse") then makefolder("Muse") end
+                if not isfolder("Muse/.ui") then makefolder("Muse/.ui") end
+                local hash = 5381
+                for index = 1, #data do hash = (hash * 33 + data:byte(index)) % 4294967296 end
+                local TempPath = "Muse/.ui/" .. tostring(hash) .. ".png"
   
                 writefile(TempPath, data)
                 Drawing2.__IMAGE_CACHE[data] = getcustomasset(TempPath)
-                delfile(TempPath)
             end
   
             local object = self.__OBJECT
+            if not self.__OBJECT_EXISTS then return end
   
             self.__PROPERTIES.Data = Drawing2.__IMAGE_CACHE[data]
             object.Image = Drawing2.__IMAGE_CACHE[data]
